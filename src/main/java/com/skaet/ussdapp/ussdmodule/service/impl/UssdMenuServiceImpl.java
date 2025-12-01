@@ -43,41 +43,55 @@ public class UssdMenuServiceImpl implements UssdMenuService {
 
     @Override
     public UssdResponse processUssdRequest(UssdRequest request) {
-        String phoneNumber = request.getPhoneNumber();
-        String text = request.getText() == null ? "" : request.getText().trim();
-        String sessionId = request.getSessionId();
-        
-        // Handle empty text (initial request)
-        String[] inputs = text.isEmpty() ? new String[]{""} : text.split("\\*");
-        int level = text.isEmpty() ? 1 : inputs.length;
-
         try {
+            String phoneNumber = request.getPhoneNumber();
+            String text = request.getText() == null ? "" : request.getText().trim();
+            String sessionId = request.getSessionId();
+
+            // Handle empty text - create array with empty string to avoid index errors
+            String[] inputs;
+            int level;
+            
+            if (text == null || text.isEmpty()) {
+                inputs = new String[]{""};
+                level = 1;
+            } else {
+                inputs = text.split("\\*");
+                level = inputs.length;
+            }
+
+            // Check if user exists
             if (!userRepository.existsByPhoneNumber(phoneNumber)) {
                 return handleRegistration(sessionId, phoneNumber, text, inputs, level);
             } else {
                 return handleMainMenu(sessionId, phoneNumber, text, inputs, level);
             }
+        } catch (ArrayIndexOutOfBoundsException e) {
+            return new UssdResponse("Invalid input. Please try again.", false);
         } catch (Exception e) {
-            sessionService.deleteSession(sessionId);
+            sessionService.deleteSession(request.getSessionId());
             return new UssdResponse("An error occurred: " + e.getMessage(), false);
         }
     }
 
     private UssdResponse handleRegistration(String sessionId, String phoneNumber, String text, String[] inputs, int level) {
         // Level 1: Initial request (empty text)
-        if (text.isEmpty()) {
+        if (text == null || text.isEmpty() || inputs.length == 0 || inputs[0].isEmpty()) {
             return new UssdResponse("Welcome! You need to register.\nEnter your first name:", true);
         }
 
         // Level 2: First name entered
-        if (level == 1) {
+        if (level == 1 && inputs.length >= 1) {
             String firstName = inputs[0];
+            if (firstName.isEmpty()) {
+                return new UssdResponse("First name cannot be empty.\nEnter your first name:", true);
+            }
             sessionService.createOrUpdateSession(sessionId, phoneNumber, "REGISTRATION_FIRST_NAME", firstName);
             return new UssdResponse("Enter your last name:", true);
         }
 
         // Level 3: Last name entered
-        if (level == 2) {
+        if (level == 2 && inputs.length >= 2) {
             Optional<UssdSessionEntity> session = sessionService.getSession(sessionId);
             if (session.isEmpty()) {
                 return new UssdResponse("Session expired. Please try again.", false);
@@ -85,19 +99,26 @@ public class UssdMenuServiceImpl implements UssdMenuService {
 
             String firstName = session.get().getSessionData();
             String lastName = inputs[1];
+            if (lastName.isEmpty()) {
+                return new UssdResponse("Last name cannot be empty.\nEnter your last name:", true);
+            }
             String combinedNames = firstName + "|" + lastName;
             sessionService.createOrUpdateSession(sessionId, phoneNumber, "REGISTRATION_LAST_NAME", combinedNames);
             return new UssdResponse("Enter a 4-digit PIN:", true);
         }
 
         // Level 4: PIN entered
-        if (level == 3) {
+        if (level == 3 && inputs.length >= 3) {
             Optional<UssdSessionEntity> session = sessionService.getSession(sessionId);
             if (session.isEmpty()) {
                 return new UssdResponse("Session expired. Please try again.", false);
             }
 
             String[] names = session.get().getSessionData().split("\\|");
+            if (names.length < 2) {
+                return new UssdResponse("Session error. Please try again.", false);
+            }
+            
             String firstName = names[0];
             String lastName = names[1];
             String pin = inputs[2];
@@ -113,8 +134,8 @@ public class UssdMenuServiceImpl implements UssdMenuService {
     }
 
     private UssdResponse handleMainMenu(String sessionId, String phoneNumber, String text, String[] inputs, int level) {
-        // Level 1: Show main menu (empty text)
-        if (text.isEmpty()) {
+        // Show main menu if text is empty or no inputs
+        if (text.isEmpty() || inputs.length == 0 || inputs[0].isEmpty()) {
             return new UssdResponse(
                     "Welcome to Mobile Banking\n" +
                             "1. Check Balance\n" +
@@ -147,7 +168,6 @@ public class UssdMenuServiceImpl implements UssdMenuService {
     }
 
     private UssdResponse handleDeposit(String sessionId, String phoneNumber, String[] inputs, int level) {
-        // Level 2: Ask for amount
         if (level == 1) {
             return new UssdResponse("Enter amount to deposit:", true);
         }
@@ -178,12 +198,9 @@ public class UssdMenuServiceImpl implements UssdMenuService {
     }
 
     private UssdResponse handleWithdrawal(String sessionId, String phoneNumber, String[] inputs, int level) {
-        // Level 2: Ask for amount
         if (level == 1) {
             return new UssdResponse("Enter amount to withdraw:", true);
         }
-
-        // Level 3: Process withdrawal
         if (level == 2 && inputs.length >= 2) {
             try {
                 BigDecimal amount = new BigDecimal(inputs[1]);

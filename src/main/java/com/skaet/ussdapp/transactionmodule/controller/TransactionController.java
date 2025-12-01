@@ -1,6 +1,6 @@
 package com.skaet.ussdapp.transactionmodule.controller;
 
-import com.skaet.ussdapp.common.constants.ResponseMessages;
+import com.skaet.ussdapp.constant.ResponseMessages;
 import com.skaet.ussdapp.common.dto.ApiResponse;
 import com.skaet.ussdapp.transactionmodule.dtos.response.TransactionHistoryResponse;
 import com.skaet.ussdapp.transactionmodule.service.interfaces.TransactionService;

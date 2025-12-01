@@ -1,4 +1,4 @@
-package com.skaet.ussdapp.common.constants;
+package com.skaet.ussdapp.constant;
 
 public enum ResponseMessages {
     // User messages

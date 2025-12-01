@@ -6,7 +6,7 @@ import com.skaet.ussdapp.accountmodule.dtos.response.AccountBalanceResponse;
 import com.skaet.ussdapp.accountmodule.dtos.response.DepositResponse;
 import com.skaet.ussdapp.accountmodule.dtos.response.WithdrawalResponse;
 import com.skaet.ussdapp.accountmodule.service.interfaces.AccountService;
-import com.skaet.ussdapp.common.constants.ResponseMessages;
+import com.skaet.ussdapp.constant.ResponseMessages;
 import com.skaet.ussdapp.common.dto.ApiResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
