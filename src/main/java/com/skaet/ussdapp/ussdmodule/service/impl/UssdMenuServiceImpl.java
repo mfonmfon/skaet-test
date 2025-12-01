@@ -48,7 +48,7 @@ public class UssdMenuServiceImpl implements UssdMenuService {
             String text = request.getText() == null ? "" : request.getText().trim();
             String sessionId = request.getSessionId();
 
-            // Handle empty text - create array with empty string to avoid index errors
+            // Handle empty text
             String[] inputs;
             int level;
             
@@ -60,11 +60,11 @@ public class UssdMenuServiceImpl implements UssdMenuService {
                 level = inputs.length;
             }
 
-            // Check if user exists
+            // Show welcome screen for new users
             if (!userRepository.existsByPhoneNumber(phoneNumber)) {
-                return handleRegistration(sessionId, phoneNumber, text, inputs, level);
+                return handleNewUserWelcome(sessionId, phoneNumber, text, inputs, level);
             } else {
-                return handleMainMenu(sessionId, phoneNumber, text, inputs, level);
+                return handleExistingUserMenu(sessionId, phoneNumber, text, inputs, level);
             }
         } catch (ArrayIndexOutOfBoundsException e) {
             return new UssdResponse("Invalid input. Please try again.", false);
@@ -74,15 +74,42 @@ public class UssdMenuServiceImpl implements UssdMenuService {
         }
     }
 
-    private UssdResponse handleRegistration(String sessionId, String phoneNumber, String text, String[] inputs, int level) {
-        // Level 1: Initial request (empty text)
+    private UssdResponse handleNewUserWelcome(String sessionId, String phoneNumber, String text, String[] inputs, int level) {
+        // Level 1: Show welcome and option to create account
         if (text == null || text.isEmpty() || inputs.length == 0 || inputs[0].isEmpty()) {
-            return new UssdResponse("Welcome! You need to register.\nEnter your first name:", true);
+            return new UssdResponse(
+                    "Welcome to Mobile Banking!\n\n" +
+                            "You don't have an account yet.\n" +
+                            "1. Create Account\n" +
+                            "0. Exit",
+                    true
+            );
         }
 
-        // Level 2: First name entered
-        if (level == 1 && inputs.length >= 1) {
-            String firstName = inputs[0];
+        String choice = inputs[0];
+
+        // User chose to create account
+        if ("1".equals(choice)) {
+            return handleRegistration(sessionId, phoneNumber, text, inputs, level);
+        }
+
+        // User chose to exit
+        if ("0".equals(choice)) {
+            return new UssdResponse("Thank you for using Mobile Banking. Goodbye!", false);
+        }
+
+        return new UssdResponse("Invalid option. Please try again.", false);
+    }
+
+    private UssdResponse handleRegistration(String sessionId, String phoneNumber, String text, String[] inputs, int level) {
+        // Level 2: Ask for first name
+        if (level == 1) {
+            return new UssdResponse("Enter your first name:", true);
+        }
+
+        // Level 3: Ask for last name
+        if (level == 2 && inputs.length >= 2) {
+            String firstName = inputs[1];
             if (firstName.isEmpty()) {
                 return new UssdResponse("First name cannot be empty.\nEnter your first name:", true);
             }
@@ -90,15 +117,15 @@ public class UssdMenuServiceImpl implements UssdMenuService {
             return new UssdResponse("Enter your last name:", true);
         }
 
-        // Level 3: Last name entered
-        if (level == 2 && inputs.length >= 2) {
+        // Level 4: Ask for PIN
+        if (level == 3 && inputs.length >= 3) {
             Optional<UssdSessionEntity> session = sessionService.getSession(sessionId);
             if (session.isEmpty()) {
                 return new UssdResponse("Session expired. Please try again.", false);
             }
 
             String firstName = session.get().getSessionData();
-            String lastName = inputs[1];
+            String lastName = inputs[2];
             if (lastName.isEmpty()) {
                 return new UssdResponse("Last name cannot be empty.\nEnter your last name:", true);
             }
@@ -107,8 +134,8 @@ public class UssdMenuServiceImpl implements UssdMenuService {
             return new UssdResponse("Enter a 4-digit PIN:", true);
         }
 
-        // Level 4: PIN entered
-        if (level == 3 && inputs.length >= 3) {
+        // Level 5: Complete registration and show main menu
+        if (level == 4 && inputs.length >= 4) {
             Optional<UssdSessionEntity> session = sessionService.getSession(sessionId);
             if (session.isEmpty()) {
                 return new UssdResponse("Session expired. Please try again.", false);
@@ -121,27 +148,41 @@ public class UssdMenuServiceImpl implements UssdMenuService {
             
             String firstName = names[0];
             String lastName = names[1];
-            String pin = inputs[2];
+            String pin = inputs[3];
 
             CreateUserAccountRequest createRequest = new CreateUserAccountRequest(firstName, lastName, phoneNumber, pin);
             CreateUserAccountResponse response = userService.createAccount(createRequest);
 
             sessionService.deleteSession(sessionId);
-            return new UssdResponse("Registration successful!\nYour account number: " + response.getAccountNumber(), false);
+            
+            // Show success and main menu
+            return new UssdResponse(
+                    "Registration successful!\n" +
+                            "Account: " + response.getAccountNumber() + "\n\n" +
+                            "What would you like to do?\n" +
+                            "1. Check Balance\n" +
+                            "2. Deposit\n" +
+                            "3. Withdraw\n" +
+                            "4. Transaction History\n" +
+                            "0. Exit",
+                    true
+            );
         }
 
         return new UssdResponse("Invalid input. Please try again.", false);
     }
 
-    private UssdResponse handleMainMenu(String sessionId, String phoneNumber, String text, String[] inputs, int level) {
+    private UssdResponse handleExistingUserMenu(String sessionId, String phoneNumber, String text, String[] inputs, int level) {
         // Show main menu if text is empty or no inputs
         if (text.isEmpty() || inputs.length == 0 || inputs[0].isEmpty()) {
             return new UssdResponse(
-                    "Welcome to Mobile Banking\n" +
+                    "Welcome to Mobile Banking!\n\n" +
+                            "What would you like to do?\n" +
                             "1. Check Balance\n" +
                             "2. Deposit\n" +
                             "3. Withdraw\n" +
-                            "4. Transaction History",
+                            "4. Transaction History\n" +
+                            "0. Exit",
                     true
             );
         }
@@ -149,43 +190,56 @@ public class UssdMenuServiceImpl implements UssdMenuService {
         String choice = inputs[0];
 
         return switch (choice) {
-            case "1" -> handleCheckBalance(phoneNumber);
+            case "1" -> handleCheckBalance(sessionId, phoneNumber, inputs, level);
             case "2" -> handleDeposit(sessionId, phoneNumber, inputs, level);
             case "3" -> handleWithdrawal(sessionId, phoneNumber, inputs, level);
-            case "4" -> handleTransactionHistory(phoneNumber);
+            case "4" -> handleTransactionHistory(sessionId, phoneNumber, inputs, level);
+            case "0" -> new UssdResponse("Thank you for using Mobile Banking. Goodbye!", false);
             default -> new UssdResponse("Invalid option. Please try again.", false);
         };
     }
 
-    private UssdResponse handleCheckBalance(String phoneNumber) {
+    private UssdResponse handleCheckBalance(String sessionId, String phoneNumber, String[] inputs, int level) {
         AccountBalanceResponse balance = accountService.getBalance(phoneNumber);
         return new UssdResponse(
                 "Account: " + balance.getAccountNumber() + "\n" +
                         "Balance: $" + balance.getBalance() + "\n" +
-                        "Name: " + balance.getAccountHolderName(),
-                false
+                        "Name: " + balance.getAccountHolderName() + "\n\n" +
+                        "What would you like to do?\n" +
+                        "1. Check Balance\n" +
+                        "2. Deposit\n" +
+                        "3. Withdraw\n" +
+                        "4. Transaction History\n" +
+                        "0. Exit",
+                true
         );
     }
 
     private UssdResponse handleDeposit(String sessionId, String phoneNumber, String[] inputs, int level) {
+        // Ask for amount
         if (level == 1) {
             return new UssdResponse("Enter amount to deposit:", true);
         }
 
-        // Level 3: Process deposit
+        // Process deposit and show menu again
         if (level == 2 && inputs.length >= 2) {
             try {
                 BigDecimal amount = new BigDecimal(inputs[1]);
                 DepositRequest depositRequest = new DepositRequest(phoneNumber, amount);
                 DepositResponse response = accountService.deposit(depositRequest);
 
-                sessionService.deleteSession(sessionId);
                 return new UssdResponse(
                         "Deposit successful!\n" +
                                 "Amount: $" + response.getAmount() + "\n" +
                                 "New Balance: $" + response.getNewBalance() + "\n" +
-                                "Ref: " + response.getTransactionReference(),
-                        false
+                                "Ref: " + response.getTransactionReference() + "\n\n" +
+                                "What would you like to do?\n" +
+                                "1. Check Balance\n" +
+                                "2. Deposit\n" +
+                                "3. Withdraw\n" +
+                                "4. Transaction History\n" +
+                                "0. Exit",
+                        true
                 );
             } catch (NumberFormatException e) {
                 return new UssdResponse("Invalid amount. Please enter a valid number.", false);
@@ -198,22 +252,30 @@ public class UssdMenuServiceImpl implements UssdMenuService {
     }
 
     private UssdResponse handleWithdrawal(String sessionId, String phoneNumber, String[] inputs, int level) {
+        // Ask for amount
         if (level == 1) {
             return new UssdResponse("Enter amount to withdraw:", true);
         }
+        
+        // Process withdrawal and show menu again
         if (level == 2 && inputs.length >= 2) {
             try {
                 BigDecimal amount = new BigDecimal(inputs[1]);
                 WithdrawalRequest withdrawalRequest = new WithdrawalRequest(phoneNumber, amount);
                 WithdrawalResponse response = accountService.withdraw(withdrawalRequest);
 
-                sessionService.deleteSession(sessionId);
                 return new UssdResponse(
                         "Withdrawal successful!\n" +
                                 "Amount: $" + response.getAmount() + "\n" +
                                 "New Balance: $" + response.getNewBalance() + "\n" +
-                                "Ref: " + response.getTransactionReference(),
-                        false
+                                "Ref: " + response.getTransactionReference() + "\n\n" +
+                                "What would you like to do?\n" +
+                                "1. Check Balance\n" +
+                                "2. Deposit\n" +
+                                "3. Withdraw\n" +
+                                "4. Transaction History\n" +
+                                "0. Exit",
+                        true
                 );
             } catch (NumberFormatException e) {
                 return new UssdResponse("Invalid amount. Please enter a valid number.", false);
@@ -225,19 +287,29 @@ public class UssdMenuServiceImpl implements UssdMenuService {
         return new UssdResponse("Invalid input.", false);
     }
 
-    private UssdResponse handleTransactionHistory(String phoneNumber) {
+    private UssdResponse handleTransactionHistory(String sessionId, String phoneNumber, String[] inputs, int level) {
         TransactionHistoryResponse history = transactionService.getTransactionHistory(phoneNumber);
 
+        StringBuilder message = new StringBuilder();
+        
         if (history.getTransactions().isEmpty()) {
-            return new UssdResponse("No transactions found.", false);
+            message.append("No transactions found.\n\n");
+        } else {
+            message.append("Last 5 Transactions:\n");
+            history.getTransactions().stream().limit(5).forEach(txn -> {
+                message.append(txn.getTransactionType()).append(" $").append(txn.getAmount())
+                        .append(" - ").append(txn.getCreatedAt().toLocalDate()).append("\n");
+            });
+            message.append("\n");
         }
 
-        StringBuilder message = new StringBuilder("Last 5 Transactions:\n");
-        history.getTransactions().stream().limit(5).forEach(txn -> {
-            message.append(txn.getTransactionType()).append(" $").append(txn.getAmount())
-                    .append(" - ").append(txn.getCreatedAt().toLocalDate()).append("\n");
-        });
+        message.append("What would you like to do?\n")
+                .append("1. Check Balance\n")
+                .append("2. Deposit\n")
+                .append("3. Withdraw\n")
+                .append("4. Transaction History\n")
+                .append("0. Exit");
 
-        return new UssdResponse(message.toString(), false);
+        return new UssdResponse(message.toString(), true);
     }
 }
